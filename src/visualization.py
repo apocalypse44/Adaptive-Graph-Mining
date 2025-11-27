@@ -154,7 +154,7 @@ class GraphVisualizer:
                     thickness=15,
                     title="Node Type",
                     xanchor="left",
-                    titleside="right"
+                    # titleside="right"
                 ),
                 line=dict(width=2, color='white')
             )
@@ -165,7 +165,7 @@ class GraphVisualizer:
             data=[edge_trace, node_trace],
             layout=go.Layout(
                 title='Product Recommendation Graph',
-                titlefont_size=16,
+                # titlefont_size=16,
                 showlegend=False,
                 hovermode='closest',
                 margin=dict(b=20, l=5, r=5, t=40),

@@ -20,10 +20,31 @@ def main():
     print("Graph-Based Recommendation System using PageRank")
     print("=" * 60)
     
-    # Configuration
-    DATA_DIR = Path("data")
-    REVIEW_FILE = DATA_DIR / "reviews.jsonl.gz"  # Update with actual file path
-    META_FILE = DATA_DIR / "meta.jsonl.gz"      # Update with actual file path
+    # ========== CONFIGURATION ==========
+    # EASIEST CATEGORY TO START: "All_Beauty" (smallest dataset)
+    # Other options: "Baby_Products", "Appliances", "Amazon_Fashion", etc.
+    # See CATEGORY_GUIDE.md for full list and recommendations
+    CATEGORY = "All_Beauty"  # Change this to your chosen category
+    
+    # Limit number of reviews for faster processing (None for all)
+    MAX_REVIEWS = 50000  # Start with 50K, increase as needed
+    
+    # ===================================
+    
+    # Get the project root directory (parent of src/)
+    PROJECT_ROOT = Path(__file__).parent.parent
+    DATA_DIR = PROJECT_ROOT / "data"
+    # Auto-generate file paths based on category
+    if CATEGORY:
+        REVIEW_FILE = DATA_DIR / f"review_{CATEGORY}.jsonl.gz"
+        META_FILE = DATA_DIR / f"meta_{CATEGORY}.jsonl.gz"
+        print(f"\n📦 Selected Category: {CATEGORY}")
+        print(f"   Review file: {REVIEW_FILE.name}")
+        print(f"   Metadata file: {META_FILE.name}")
+    else:
+        # Fallback to generic names
+        REVIEW_FILE = DATA_DIR / "reviews.jsonl.gz"
+        META_FILE = DATA_DIR / "meta.jsonl.gz"
     
     # Check if data directory exists
     if not DATA_DIR.exists():
@@ -37,6 +58,13 @@ def main():
     print("\n[Step 1] Loading data...")
     loader = AmazonDataLoader()
     
+    # Resolve paths to absolute paths for reliable checking
+    REVIEW_FILE = REVIEW_FILE.resolve()
+    META_FILE = META_FILE.resolve()
+    
+    print(f"Review file: {REVIEW_FILE}")
+    print(f"File exists: {REVIEW_FILE.exists()}")
+    
     # Check if files exist
     if not REVIEW_FILE.exists():
         print(f"\nReview file not found: {REVIEW_FILE}")
@@ -45,9 +73,9 @@ def main():
         demo_mode = True
     else:
         demo_mode = False
-        # Load actual data (limit for demo)
+        # Load actual data (limit for faster processing)
         print(f"Loading reviews from {REVIEW_FILE}...")
-        reviews = loader.load_reviews(str(REVIEW_FILE), max_reviews=50000)
+        reviews = loader.load_reviews(str(REVIEW_FILE), max_reviews=MAX_REVIEWS)
         
         if META_FILE.exists():
             print(f"Loading metadata from {META_FILE}...")
@@ -62,10 +90,8 @@ def main():
         print("=" * 60)
         
         # Create sample graph for demonstration
-        from src.graph_builder import ProductGraphBuilder
-        from src.pagerank import PageRankCalculator
-        from src.visualization import GraphVisualizer
         import networkx as nx
+        import random
         
         # Create a sample graph
         sample_graph = nx.DiGraph()
@@ -138,9 +164,13 @@ def main():
         print("=" * 60)
         print("\nTo use with real data:")
         print("1. Download Amazon Reviews dataset from https://amazon-reviews-2023.github.io/")
-        print("2. Place review and metadata files in the data/ directory")
-        print("3. Update file paths in main.py")
-        print("4. Run the script again")
+        print("2. RECOMMENDED: Start with 'All_Beauty' category (smallest, easiest)")
+        print("3. Place files in data/ directory:")
+        print("   - review_All_Beauty.jsonl.gz")
+        print("   - meta_All_Beauty.jsonl.gz")
+        print("4. Update CATEGORY variable in main.py (already set to 'All_Beauty')")
+        print("5. Run the script again")
+        print("\n💡 See CATEGORY_GUIDE.md for category recommendations!")
         
         return
     

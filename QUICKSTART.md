@@ -109,9 +109,9 @@ AGM/
 ### Basic Usage
 
 ```python
-from src.data_loader import AmazonDataLoader
-from src.graph_builder import ProductGraphBuilder
-from src.pagerank import PageRankCalculator
+from data_loader import AmazonDataLoader
+from graph_builder import ProductGraphBuilder
+from pagerank import PageRankCalculator
 
 # Load data
 loader = AmazonDataLoader()
@@ -134,7 +134,7 @@ recommendations = calculator.get_recommendations("B001234567", k=10)
 ### Adaptive Updates
 
 ```python
-from src.adaptive_update import AdaptivePageRank
+from adaptive_update import AdaptivePageRank
 
 # Initialize with existing scores
 adaptive = AdaptivePageRank(graph, scores)
@@ -150,7 +150,7 @@ new_scores = adaptive.get_scores()
 ### Visualization
 
 ```python
-from src.visualization import GraphVisualizer
+from visualization import GraphVisualizer
 
 visualizer = GraphVisualizer(graph, pagerank_scores)
 fig = visualizer.create_network_plot(selected_node="B001234567", top_k=10)
