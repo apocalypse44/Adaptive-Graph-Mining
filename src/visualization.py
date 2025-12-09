@@ -6,9 +6,9 @@ import numpy as np
 
 
 class GraphVisualizer:
-    """Visualize product graph and PageRank results"""
+    """Visualize product graph and PageRank results with multi-edge support"""
     
-    def __init__(self, graph: nx.DiGraph, pagerank_scores: Dict[str, float] = None):
+    def __init__(self, graph: nx.MultiDiGraph, pagerank_scores: Dict[str, float] = None):
         self.graph = graph
         self.pagerank_scores = pagerank_scores or {}
         
@@ -36,7 +36,7 @@ class GraphVisualizer:
                 # Add neighbors of selected node
                 nodes_to_keep.update(self.graph.neighbors(selected_node))
             
-            subgraph = self.graph.subgraph(nodes_to_keep)
+            subgraph = self.graph.subgraph(nodes_to_keep).copy()
         else:
             subgraph = self.graph
         
@@ -53,21 +53,50 @@ class GraphVisualizer:
         else:
             pos = nx.spring_layout(subgraph)
         
-        # Prepare edge traces
-        edge_x = []
-        edge_y = []
-        for edge in subgraph.edges():
-            x0, y0 = pos[edge[0]]
-            x1, y1 = pos[edge[1]]
-            edge_x.extend([x0, x1, None])
-            edge_y.extend([y0, y1, None])
+        # Prepare edge traces by type
+        edge_traces = []
         
-        edge_trace = go.Scatter(
-            x=edge_x, y=edge_y,
-            line=dict(width=0.5, color='#888'),
-            hoverinfo='none',
-            mode='lines'
-        )
+        # Co-purchase edges (blue)
+        edge_x_purchase = []
+        edge_y_purchase = []
+        for u, v, data in subgraph.edges(data=True):
+            if data.get('edge_type') == 'co_purchase':
+                x0, y0 = pos[u]
+                x1, y1 = pos[v]
+                edge_x_purchase.extend([x0, x1, None])
+                edge_y_purchase.extend([y0, y1, None])
+        
+        if edge_x_purchase:
+            edge_traces.append(go.Scatter(
+                x=edge_x_purchase, y=edge_y_purchase,
+                line=dict(width=1.5, color='#4169E1'),  # Royal blue
+                hoverinfo='none',
+                mode='lines',
+                name='Co-purchase',
+                showlegend=True,
+                legendgroup='edges'
+            ))
+        
+        # Co-review edges (green)
+        edge_x_review = []
+        edge_y_review = []
+        for u, v, data in subgraph.edges(data=True):
+            if data.get('edge_type') == 'co_review':
+                x0, y0 = pos[u]
+                x1, y1 = pos[v]
+                edge_x_review.extend([x0, x1, None])
+                edge_y_review.extend([y0, y1, None])
+        
+        if edge_x_review:
+            edge_traces.append(go.Scatter(
+                x=edge_x_review, y=edge_y_review,
+                line=dict(width=1.5, color='#32CD32', dash='dash'),  # Lime green, dashed
+                hoverinfo='none',
+                mode='lines',
+                name='Co-review',
+                showlegend=True,
+                legendgroup='edges'
+            ))
         
         # Prepare node traces
         node_x = []
@@ -75,6 +104,7 @@ class GraphVisualizer:
         node_text = []
         node_sizes = []
         node_colors = []
+        node_symbols = []
         
         recommendations = set()
         if selected_node and selected_node in subgraph:
@@ -90,73 +120,161 @@ class GraphVisualizer:
             else:
                 recommendations = set(neighbors[:top_k])
         
+        # Separate traces for different node types
+        selected_x, selected_y, selected_text, selected_size = [], [], [], []
+        rec_x, rec_y, rec_text, rec_sizes = [], [], [], []
+        regular_x, regular_y, regular_text, regular_sizes = [], [], [], []
+        
         for node in subgraph.nodes():
             x, y = pos[node]
-            node_x.append(x)
-            node_y.append(y)
             
             # Node size based on PageRank
             score = self.pagerank_scores.get(node, 0)
-            size = max(5, score * node_size_factor) if score > 0 else 10
-            node_sizes.append(size)
+            size = max(12, score * node_size_factor) if score > 0 else 15
             
-            # Node color
-            if node == selected_node:
-                color = 'red'
-            elif node in recommendations:
-                color = 'orange'
-            else:
-                color = 'lightblue'
-            node_colors.append(color)
+            # Count edge types
+            purchase_count = sum(1 for _, _, d in subgraph.out_edges(node, data=True) if d.get('edge_type') == 'co_purchase')
+            review_count = sum(1 for _, _, d in subgraph.out_edges(node, data=True) if d.get('edge_type') == 'co_review')
             
             # Node text
-            node_text.append(f"Product: {node[:10]}...<br>PageRank: {score:.4f}")
-        
-        node_trace = go.Scatter(
-            x=node_x, y=node_y,
-            mode='markers+text',
-            hoverinfo='text',
-            text=[node[:8] for node in subgraph.nodes()],
-            textposition="middle center",
-            hovertext=node_text,
-            marker=dict(
-                showscale=True,
-                colorscale='YlGnBu',
-                reversescale=True,
-                color=node_colors,
-                size=node_sizes,
-                colorbar=dict(
-                    thickness=15,
-                    title="Node Type",
-                    xanchor="left",
-                    # titleside="right"
-                ),
-                line=dict(width=2, color='white')
+            text = (
+                f"Product: {node}<br>"
+                f"PageRank: {score:.6f}<br>"
+                f"Co-purchase edges: {purchase_count}<br>"
+                f"Co-review edges: {review_count}"
             )
-        )
+            
+            # Categorize nodes
+            if node == selected_node:
+                selected_x.append(x)
+                selected_y.append(y)
+                selected_text.append(text)
+                selected_size.append(size * 1.5)
+            elif node in recommendations:
+                rec_x.append(x)
+                rec_y.append(y)
+                rec_text.append(text)
+                rec_sizes.append(size * 1.2)
+            else:
+                regular_x.append(x)
+                regular_y.append(y)
+                regular_text.append(text)
+                regular_sizes.append(size)
+        
+        node_traces = []
+        
+        # Regular nodes
+        if regular_x:
+            node_traces.append(go.Scatter(
+                x=regular_x, y=regular_y,
+                mode='markers',
+                hoverinfo='text',
+                hovertext=regular_text,
+                marker=dict(
+                    color='lightblue',
+                    size=regular_sizes,
+                    line=dict(width=1, color='white'),
+                    symbol='circle'
+                ),
+                name='Other Products',
+                showlegend=True,
+                legendgroup='nodes'
+            ))
+        
+        # Recommendation nodes
+        if rec_x:
+            node_traces.append(go.Scatter(
+                x=rec_x, y=rec_y,
+                mode='markers',
+                hoverinfo='text',
+                hovertext=rec_text,
+                marker=dict(
+                    color='orange',
+                    size=rec_sizes,
+                    line=dict(width=2, color='darkorange'),
+                    symbol='diamond'
+                ),
+                name=f'Top {top_k} Recommendations',
+                showlegend=True,
+                legendgroup='nodes'
+            ))
+        
+        # Selected node
+        if selected_x:
+            node_traces.append(go.Scatter(
+                x=selected_x, y=selected_y,
+                mode='markers',
+                hoverinfo='text',
+                hovertext=selected_text,
+                marker=dict(
+                    color='red',
+                    size=selected_size,
+                    line=dict(width=3, color='darkred'),
+                    symbol='star'
+                ),
+                name=f'Selected: {selected_node}',
+                showlegend=True,
+                legendgroup='nodes'
+            ))
+        
+        # Build title
+        if selected_node:
+            selected_score = self.pagerank_scores.get(selected_node, 0)
+            title = f'Product Recommendation Graph<br><sub>Showing recommendations for: <b>{selected_node}</b> (PageRank: {selected_score:.6f})</sub>'
+        else:
+            title = 'Product Recommendation Graph'
         
         # Create figure
         fig = go.Figure(
-            data=[edge_trace, node_trace],
+            data=edge_traces + node_traces,
             layout=go.Layout(
-                title='Product Recommendation Graph',
-                # titlefont_size=16,
-                showlegend=False,
+                title=title,
+                showlegend=True,
+                height=600,
                 hovermode='closest',
-                margin=dict(b=20, l=5, r=5, t=40),
+                margin=dict(b=20, l=5, r=5, t=80),
                 annotations=[
                     dict(
-                        text="Node size represents PageRank score. Red = selected, Orange = recommendations",
+                        text="🔴 Star = Selected | 🟠 Diamond = Recommendations | 🔵 Circle = Other Products",
                         showarrow=False,
                         xref="paper", yref="paper",
-                        x=0.005, y=-0.002,
-                        xanchor="left", yanchor="bottom",
-                        font=dict(color="#888", size=12)
+                        x=0.5, y=-0.05,
+                        xanchor="center", yanchor="bottom",
+                        font=dict(color="#555", size=11)
                     )
                 ],
                 xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                yaxis=dict(showgrid=False, zeroline=False, showticklabels=False)
+                yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+                legend=dict(
+                    x=1.02, y=1.0,
+                    xanchor='left', yanchor='top',
+                    bgcolor='rgba(255,255,255,0.9)',
+                    bordercolor='gray',
+                    borderwidth=1
+                )
             )
+        )
+        
+        return fig
+    
+    def plot_edge_type_distribution(self) -> go.Figure:
+        """Plot distribution of edge types"""
+        co_purchase_count = sum(1 for u, v, d in self.graph.edges(data=True) if d.get('edge_type') == 'co_purchase')
+        co_review_count = sum(1 for u, v, d in self.graph.edges(data=True) if d.get('edge_type') == 'co_review')
+        
+        fig = go.Figure(data=[
+            go.Bar(
+                x=['Co-purchase', 'Co-review'],
+                y=[co_purchase_count, co_review_count],
+                marker_color=['#4169E1', '#32CD32'],
+                text=[co_purchase_count, co_review_count],
+                textposition='auto'
+            )
+        ])
+        fig.update_layout(
+            title='Edge Type Distribution',
+            xaxis_title='Edge Type',
+            yaxis_title='Count'
         )
         
         return fig
@@ -176,7 +294,8 @@ class GraphVisualizer:
         
         return fig
     
-    def plot_top_products(self, k: int = 20) -> go.Figure:
+    def plot_top_products(self, k: int = 20, highlight_product: Optional[str] = None) -> go.Figure:
+        """Plot top products with optional highlighting of a specific product"""
         if not self.pagerank_scores:
             return go.Figure()
         
@@ -189,14 +308,81 @@ class GraphVisualizer:
         products = [p[0][:15] for p in top_products]
         scores = [p[1] for p in top_products]
         
+        # Color bars based on whether they match highlight_product
+        colors = []
+        for p, _ in top_products:
+            if highlight_product and p == highlight_product:
+                colors.append('red')
+            else:
+                colors.append('#4169E1')
+        
         fig = go.Figure(data=[
-            go.Bar(x=products, y=scores)
+            go.Bar(
+                x=products, 
+                y=scores, 
+                marker_color=colors,
+                text=[f'{s:.6f}' for s in scores],
+                textposition='outside'
+            )
         ])
+        
+        title_text = f'Top {k} Products by PageRank'
+        if highlight_product:
+            selected_score = self.pagerank_scores.get(highlight_product, 0)
+            # Find rank
+            all_ranked = sorted(self.pagerank_scores.items(), key=lambda x: x[1], reverse=True)
+            rank = next((i+1 for i, (p, _) in enumerate(all_ranked) if p == highlight_product), None)
+            
+            if rank and rank <= k:
+                title_text += f'<br><sub>Selected product <b>{highlight_product}</b> is highlighted in red (Rank #{rank})</sub>'
+            elif rank:
+                title_text += f'<br><sub>Selected product <b>{highlight_product}</b> is ranked #{rank} (Score: {selected_score:.6f}, not in top {k})</sub>'
+        
         fig.update_layout(
-            title=f'Top {k} Products by PageRank',
+            title=title_text,
             xaxis_title='Product ID',
             yaxis_title='PageRank Score',
-            xaxis_tickangle=-45
+            xaxis_tickangle=-45,
+            height=500
+        )
+        
+        return fig
+    
+    def plot_comparison_chart(self, selected_node: str, top_k: int = 10) -> go.Figure:
+        """Create a comparison chart showing selected product vs its recommendations"""
+        if selected_node not in self.graph:
+            return go.Figure()
+        
+        # Get recommendations
+        recommendations = self._get_recommendations(selected_node, k=top_k)
+        
+        if not recommendations:
+            return go.Figure()
+        
+        # Build comparison data
+        products = [selected_node] + [r[0] for r in recommendations]
+        scores = [self.pagerank_scores.get(selected_node, 0)] + [r[1] for r in recommendations]
+        colors = ['red'] + ['orange'] * len(recommendations)
+        labels = ['SELECTED'] + [f'Rec #{i+1}' for i in range(len(recommendations))]
+        
+        fig = go.Figure(data=[
+            go.Bar(
+                x=[p[:15] for p in products],
+                y=scores,
+                marker_color=colors,
+                text=labels,
+                textposition='outside',
+                hovertext=[f'{p}<br>PageRank: {s:.6f}' for p, s in zip(products, scores)],
+                hoverinfo='text'
+            )
+        ])
+        
+        fig.update_layout(
+            title=f'PageRank Comparison: Selected Product vs Top {top_k} Recommendations<br><sub>Comparing <b>{selected_node}</b> with its recommended products</sub>',
+            xaxis_title='Product ID',
+            yaxis_title='PageRank Score',
+            xaxis_tickangle=-45,
+            height=500
         )
         
         return fig
@@ -207,414 +393,55 @@ class GraphVisualizer:
         fig = make_subplots(
             rows=2, cols=2,
             subplot_titles=('Network Graph', 'Top Products', 
-                          'PageRank Distribution', 'Recommendations'),
+                          'Edge Type Distribution', 'PageRank Distribution'),
             specs=[[{"type": "scatter"}, {"type": "bar"}],
-                   [{"type": "histogram"}, {"type": "bar"}]]
+                   [{"type": "bar"}, {"type": "histogram"}]]
         )
         
         # Network graph
         network_fig = self.create_network_plot(selected_node=selected_node)
-        fig.add_trace(network_fig.data[0], row=1, col=1)
-        fig.add_trace(network_fig.data[1], row=1, col=1)
+        for trace in network_fig.data:
+            fig.add_trace(trace, row=1, col=1)
         
-        # Top products
-        top_fig = self.plot_top_products(k=10)
+        # Top products with highlighting
+        top_fig = self.plot_top_products(k=10, highlight_product=selected_node)
         fig.add_trace(top_fig.data[0], row=1, col=2)
         
-        # Distribution
+        # Edge type distribution
+        edge_fig = self.plot_edge_type_distribution()
+        fig.add_trace(edge_fig.data[0], row=2, col=1)
+        
+        # PageRank distribution
         dist_fig = self.plot_pagerank_distribution()
-        fig.add_trace(dist_fig.data[0], row=2, col=1)
+        fig.add_trace(dist_fig.data[0], row=2, col=2)
         
-        # Recommendations
-        if selected_node and self.pagerank_scores:
-            recommendations = self._get_recommendations(selected_node, k=10)
-            if recommendations:
-                rec_products = [r[0][:15] for r in recommendations]
-                rec_scores = [r[1] for r in recommendations]
-                fig.add_trace(
-                    go.Bar(x=rec_products, y=rec_scores),
-                    row=2, col=2
-                )
+        dashboard_title = "Product Recommendation Dashboard"
+        if selected_node:
+            dashboard_title += f" - Analysis for {selected_node}"
         
-        fig.update_layout(height=800, showlegend=False, title_text="Product Recommendation Dashboard")
+        fig.update_layout(height=700, showlegend=False, title_text=dashboard_title)
         
         return fig
     
-    def _get_recommendations(self, product_id: str, k: int = 10) -> List[Tuple[str, float]]:
+    def _get_recommendations(self, product_id: str, k: int = 10, edge_type: str = None) -> List[Tuple[str, float]]:
+        """Get recommendations, optionally filtered by edge type"""
         if product_id not in self.graph:
             return []
         
-        neighbors = list(self.graph.neighbors(product_id))
+        neighbors = []
+        if edge_type:
+            # Filter by edge type
+            for neighbor in self.graph.neighbors(product_id):
+                for key, data in self.graph[product_id][neighbor].items():
+                    if data.get('edge_type') == edge_type:
+                        neighbors.append(neighbor)
+                        break
+        else:
+            neighbors = list(self.graph.neighbors(product_id))
+        
         neighbor_scores = [
             (neighbor, self.pagerank_scores.get(neighbor, 0))
             for neighbor in neighbors
         ]
         neighbor_scores.sort(key=lambda x: x[1], reverse=True)
         return neighbor_scores[:k]
-
-
-# """
-# Visualization Module
-# Interactive 3D and 2D graph visualization
-# """
-
-# import networkx as nx
-# import plotly.graph_objects as go
-# from typing import Dict, List, Optional, Tuple
-# import numpy as np
-
-
-# class GraphVisualizer:
-#     """Visualize product graph and PageRank results"""
-    
-#     def __init__(self, graph: nx.DiGraph, pagerank_scores: Dict[str, float] = None):
-#         """
-#         Initialize visualizer
-        
-#         Args:
-#             graph: NetworkX graph to visualize
-#             pagerank_scores: Optional PageRank scores for node sizing
-#         """
-#         self.graph = graph
-#         self.pagerank_scores = pagerank_scores or {}
-    
-#     def create_3d_network_plot(self,
-#                                selected_node: Optional[str] = None,
-#                                top_k: int = 10,
-#                                node_size_factor: float = 20,
-#                                max_nodes: int = 500) -> go.Figure:
-#         """
-#         Create interactive 3D network visualization
-        
-#         Args:
-#             selected_node: Highlight this node and its recommendations
-#             top_k: Number of top recommendations to highlight
-#             node_size_factor: Factor to scale node sizes
-#             max_nodes: Maximum nodes to display (for performance)
-            
-#         Returns:
-#             Plotly 3D figure object
-#         """
-#         # Sample nodes if graph is too large
-#         if self.graph.number_of_nodes() > max_nodes:
-#             if self.pagerank_scores:
-#                 top_nodes = sorted(
-#                     self.pagerank_scores.items(),
-#                     key=lambda x: x[1],
-#                     reverse=True
-#                 )[:max_nodes - 1]
-#                 nodes_to_keep = {node for node, _ in top_nodes}
-#             else:
-#                 nodes_to_keep = set(list(self.graph.nodes())[:max_nodes])
-            
-#             if selected_node and selected_node in self.graph:
-#                 nodes_to_keep.add(selected_node)
-#                 nodes_to_keep.update(self.graph.neighbors(selected_node))
-            
-#             subgraph = self.graph.subgraph(nodes_to_keep)
-#         else:
-#             subgraph = self.graph
-        
-#         # Compute 3D spring layout
-#         pos_3d = nx.spring_layout(subgraph, dim=3, k=1, iterations=50, seed=42)
-        
-#         # Get recommendations
-#         recommendations = set()
-#         if selected_node and selected_node in subgraph:
-#             neighbors = list(subgraph.neighbors(selected_node))
-#             if self.pagerank_scores:
-#                 neighbor_scores = [
-#                     (n, self.pagerank_scores.get(n, 0))
-#                     for n in neighbors
-#                 ]
-#                 neighbor_scores.sort(key=lambda x: x[1], reverse=True)
-#                 recommendations = {n for n, _ in neighbor_scores[:top_k]}
-#             else:
-#                 recommendations = set(neighbors[:top_k])
-        
-#         # Prepare edge traces
-#         edge_x = []
-#         edge_y = []
-#         edge_z = []
-        
-#         for edge in subgraph.edges():
-#             x0, y0, z0 = pos_3d[edge[0]]
-#             x1, y1, z1 = pos_3d[edge[1]]
-#             edge_x.extend([x0, x1, None])
-#             edge_y.extend([y0, y1, None])
-#             edge_z.extend([z0, z1, None])
-        
-#         edge_trace = go.Scatter3d(
-#             x=edge_x, y=edge_y, z=edge_z,
-#             mode='lines',
-#             line=dict(color='rgba(125,125,125,0.3)', width=1),
-#             hoverinfo='none',
-#             showlegend=False
-#         )
-        
-#         # Prepare node traces
-#         node_x = []
-#         node_y = []
-#         node_z = []
-#         node_text = []
-#         node_sizes = []
-#         node_colors = []
-#         node_color_values = []
-        
-#         for node in subgraph.nodes():
-#             x, y, z = pos_3d[node]
-#             node_x.append(x)
-#             node_y.append(y)
-#             node_z.append(z)
-            
-#             # Node size based on PageRank
-#             score = self.pagerank_scores.get(node, 0)
-#             size = max(5, score * node_size_factor) if score > 0 else 5
-#             node_sizes.append(size)
-            
-#             # Node color and hover text
-#             if node == selected_node:
-#                 node_colors.append('red')
-#                 node_color_values.append(3)
-#                 node_text.append(f"<b>SELECTED</b><br>Product: {node}<br>PageRank: {score:.6f}")
-#             elif node in recommendations:
-#                 node_colors.append('orange')
-#                 node_color_values.append(2)
-#                 node_text.append(f"<b>RECOMMENDED</b><br>Product: {node}<br>PageRank: {score:.6f}")
-#             else:
-#                 node_colors.append('lightblue')
-#                 node_color_values.append(score)
-#                 node_text.append(f"Product: {node}<br>PageRank: {score:.6f}")
-        
-#         node_trace = go.Scatter3d(
-#             x=node_x, y=node_y, z=node_z,
-#             mode='markers+text',
-#             marker=dict(
-#                 size=node_sizes,
-#                 color=node_color_values,
-#                 colorscale='Viridis',
-#                 showscale=True,
-#                 colorbar=dict(
-#                     title="PageRank<br>Score",
-#                     thickness=15,
-#                     len=0.7
-#                 ),
-#                 line=dict(color='white', width=0.5)
-#             ),
-#             text=[node[:8] for node in subgraph.nodes()],
-#             textposition="middle center",
-#             textfont=dict(size=8),
-#             hovertext=node_text,
-#             hoverinfo='text',
-#             showlegend=False
-#         )
-        
-#         # Create figure
-#         fig = go.Figure(data=[edge_trace, node_trace])
-        
-#         fig.update_layout(
-#             title=dict(
-#                 text='Interactive 3D Product Recommendation Network',
-#                 x=0.5,
-#                 xanchor='center',
-#                 font=dict(size=18)
-#             ),
-#             scene=dict(
-#                 xaxis=dict(showbackground=False, showticklabels=False, title=''),
-#                 yaxis=dict(showbackground=False, showticklabels=False, title=''),
-#                 zaxis=dict(showbackground=False, showticklabels=False, title=''),
-#                 bgcolor='rgba(240,240,240,0.9)'
-#             ),
-#             showlegend=False,
-#             hovermode='closest',
-#             margin=dict(l=0, r=0, b=0, t=40),
-#             annotations=[
-#                 dict(
-#                     text="🖱️ Click and drag to rotate | Scroll to zoom | Hover over nodes for details",
-#                     showarrow=False,
-#                     xref="paper", yref="paper",
-#                     x=0.5, y=0.02,
-#                     xanchor="center",
-#                     font=dict(size=12, color="gray")
-#                 )
-#             ]
-#         )
-        
-#         return fig
-    
-#     def create_interactive_network_pyvis(self,
-#                                         selected_node: Optional[str] = None,
-#                                         top_k: int = 10,
-#                                         max_nodes: int = 500,
-#                                         output_file: str = "network_graph.html") -> None:
-#         """
-#         Create interactive network using PyVis (physics-based)
-        
-#         Args:
-#             selected_node: Highlight this node and its recommendations
-#             top_k: Number of top recommendations to highlight
-#             max_nodes: Maximum nodes to display
-#             output_file: Output HTML filename
-#         """
-#         try:
-#             from pyvis.network import Network
-#         except ImportError:
-#             print("PyVis not installed. Install with: pip install pyvis")
-#             return
-        
-#         # Sample nodes if graph is too large
-#         if self.graph.number_of_nodes() > max_nodes:
-#             if self.pagerank_scores:
-#                 top_nodes = sorted(
-#                     self.pagerank_scores.items(),
-#                     key=lambda x: x[1],
-#                     reverse=True
-#                 )[:max_nodes - 1]
-#                 nodes_to_keep = {node for node, _ in top_nodes}
-#             else:
-#                 nodes_to_keep = set(list(self.graph.nodes())[:max_nodes])
-            
-#             if selected_node and selected_node in self.graph:
-#                 nodes_to_keep.add(selected_node)
-#                 nodes_to_keep.update(self.graph.neighbors(selected_node))
-            
-#             subgraph = self.graph.subgraph(nodes_to_keep)
-#         else:
-#             subgraph = self.graph
-        
-#         # Get recommendations
-#         recommendations = set()
-#         if selected_node and selected_node in subgraph:
-#             neighbors = list(subgraph.neighbors(selected_node))
-#             if self.pagerank_scores:
-#                 neighbor_scores = [
-#                     (n, self.pagerank_scores.get(n, 0))
-#                     for n in neighbors
-#                 ]
-#                 neighbor_scores.sort(key=lambda x: x[1], reverse=True)
-#                 recommendations = {n for n, _ in neighbor_scores[:top_k]}
-#             else:
-#                 recommendations = set(neighbors[:top_k])
-        
-#         # Create PyVis network
-#         net = Network(height="800px", width="100%", bgcolor="#ffffff", 
-#                      font_color="black", directed=True)
-        
-#         # Configure physics for better interaction
-#         net.set_options("""
-#         {
-#           "physics": {
-#             "forceAtlas2Based": {
-#               "gravitationalConstant": -50,
-#               "centralGravity": 0.01,
-#               "springLength": 100,
-#               "springConstant": 0.08
-#             },
-#             "maxVelocity": 50,
-#             "solver": "forceAtlas2Based",
-#             "timestep": 0.35,
-#             "stabilization": {"iterations": 150}
-#           }
-#         }
-#         """)
-        
-#         # Add nodes with styling
-#         for node in subgraph.nodes():
-#             score = self.pagerank_scores.get(node, 0)
-#             size = max(10, score * 1000)
-            
-#             if node == selected_node:
-#                 color = '#ff0000'
-#                 title = f"<b>SELECTED</b><br>Product: {node}<br>PageRank: {score:.6f}"
-#             elif node in recommendations:
-#                 color = '#ffa500'
-#                 title = f"<b>RECOMMENDED</b><br>Product: {node}<br>PageRank: {score:.6f}"
-#             else:
-#                 color = '#4a90e2'
-#                 title = f"Product: {node}<br>PageRank: {score:.6f}"
-            
-#             net.add_node(node, 
-#                         label=node[:8],
-#                         title=title,
-#                         size=size,
-#                         color=color)
-        
-#         # Add edges
-#         for edge in subgraph.edges():
-#             weight = subgraph[edge[0]][edge[1]].get('weight', 1)
-#             net.add_edge(edge[0], edge[1], value=weight, arrows='to')
-        
-#         # Save to HTML
-#         net.save_graph(output_file)
-#         print(f"Interactive network saved to: {output_file}")
-#         print(f"Open {output_file} in your browser to interact with the graph!")
-    
-#     def plot_top_products(self, k: int = 20) -> go.Figure:
-#         """
-#         Plot bar chart of top k products by PageRank
-        
-#         Args:
-#             k: Number of top products to show
-            
-#         Returns:
-#             Plotly figure object
-#         """
-#         if not self.pagerank_scores:
-#             return go.Figure()
-        
-#         top_products = sorted(
-#             self.pagerank_scores.items(),
-#             key=lambda x: x[1],
-#             reverse=True
-#         )[:k]
-        
-#         products = [p[0][:15] for p in top_products]
-#         scores = [p[1] for p in top_products]
-        
-#         fig = go.Figure(data=[
-#             go.Bar(x=products, y=scores, marker_color='steelblue')
-#         ])
-#         fig.update_layout(
-#             title=f'Top {k} Products by PageRank',
-#             xaxis_title='Product ID',
-#             yaxis_title='PageRank Score',
-#             xaxis_tickangle=-45,
-#             hovermode='x'
-#         )
-        
-#         return fig
-    
-#     def plot_pagerank_distribution(self) -> go.Figure:
-#         """
-#         Plot distribution of PageRank scores
-        
-#         Returns:
-#             Plotly figure object
-#         """
-#         if not self.pagerank_scores:
-#             return go.Figure()
-        
-#         scores = list(self.pagerank_scores.values())
-        
-#         fig = go.Figure(data=[go.Histogram(x=scores, nbinsx=50, marker_color='steelblue')])
-#         fig.update_layout(
-#             title='PageRank Score Distribution',
-#             xaxis_title='PageRank Score',
-#             yaxis_title='Frequency',
-#             hovermode='x'
-#         )
-        
-#         return fig
-    
-#     def _get_recommendations(self, product_id: str, k: int = 10) -> List[Tuple[str, float]]:
-#         """Get recommendations for a product"""
-#         if product_id not in self.graph:
-#             return []
-        
-#         neighbors = list(self.graph.neighbors(product_id))
-#         neighbor_scores = [
-#             (neighbor, self.pagerank_scores.get(neighbor, 0))
-#             for neighbor in neighbors
-#         ]
-#         neighbor_scores.sort(key=lambda x: x[1], reverse=True)
-#         return neighbor_scores[:k]

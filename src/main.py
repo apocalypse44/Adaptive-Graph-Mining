@@ -74,25 +74,39 @@ def main():
         print("DEMO MODE: Creating sample graph for demonstration")
         print("=" * 60)
         
-        # Create a sample graph
-        sample_graph = nx.DiGraph()
+        # Create a sample multi-edge graph
+        sample_graph = nx.MultiDiGraph()
         products = [f"P{i:03d}" for i in range(20)]
         
         # Add nodes
         for product in products:
             sample_graph.add_node(product)
         
-        # Add edges (simulating co-purchase relationships)
+        # Add edges with different types
         import random
         random.seed(42)
-        for i in range(30):
+        
+        # Add co-purchase edges
+        for i in range(20):
             u = random.choice(products)
             v = random.choice(products)
             if u != v:
-                sample_graph.add_edge(u, v, weight=random.uniform(0.5, 2.0))
+                sample_graph.add_edge(u, v, weight=random.uniform(0.8, 2.0), edge_type='co_purchase')
+        
+        # Add co-review edges
+        for i in range(15):
+            u = random.choice(products)
+            v = random.choice(products)
+            if u != v:
+                sample_graph.add_edge(u, v, weight=random.uniform(0.5, 1.5), edge_type='co_review')
+        
+        co_purchase_count = sum(1 for u, v, d in sample_graph.edges(data=True) if d.get('edge_type') == 'co_purchase')
+        co_review_count = sum(1 for u, v, d in sample_graph.edges(data=True) if d.get('edge_type') == 'co_review')
         
         print(f"\nSample graph created: {sample_graph.number_of_nodes()} nodes, "
               f"{sample_graph.number_of_edges()} edges")
+        print(f"  Co-purchase edges: {co_purchase_count}")
+        print(f"  Co-review edges: {co_review_count}")
         
         # Step 2: Compute PageRank
         print("\n[Step 2] Computing PageRank...")
@@ -108,17 +122,31 @@ def main():
         print("\n[Step 3] Creating visualizations...")
         visualizer = GraphVisualizer(sample_graph, pagerank_scores)
         
+        selected_product = "P001"
+        
         # Create network plot
-        fig = visualizer.create_network_plot(selected_node="P001", top_k=5)
+        fig = visualizer.create_network_plot(selected_node=selected_product, top_k=5)
         output_file = "visualization_network.html"
         fig.write_html(output_file)
         print(f"Network visualization saved to: {output_file}")
         
-        # Create top products plot
-        fig2 = visualizer.plot_top_products(k=10)
+        # Create top products plot with highlighting
+        fig2 = visualizer.plot_top_products(k=10, highlight_product=selected_product)
         output_file2 = "visualization_top_products.html"
         fig2.write_html(output_file2)
         print(f"Top products visualization saved to: {output_file2}")
+        
+        # Create comparison chart
+        fig3 = visualizer.plot_comparison_chart(selected_product, top_k=5)
+        output_file3 = "visualization_comparison.html"
+        fig3.write_html(output_file3)
+        print(f"Comparison chart saved to: {output_file3}")
+        
+        # Create edge type distribution
+        fig4 = visualizer.plot_edge_type_distribution()
+        output_file4 = "visualization_edge_types.html"
+        fig4.write_html(output_file4)
+        print(f"Edge type distribution saved to: {output_file4}")
         
         # Step 4: Adaptive updates demo
         print("\n[Step 4] Demonstrating adaptive updates...")
@@ -126,7 +154,7 @@ def main():
         
         # Add a new product
         new_product = "P999"
-        new_edges = [("P001", "out"), ("P002", "out"), ("P003", "in")]
+        new_edges = [("P001", "out", "co_purchase"), ("P002", "out", "co_review"), ("P003", "in", "co_purchase")]
         updated_scores = adaptive.add_node(new_product, new_edges)
         print(f"Added product {new_product} with {len(new_edges)} connections")
         print(f"Updated scores for {len(updated_scores)} affected nodes")
@@ -155,19 +183,16 @@ def main():
         
         return
     
-    # Step 2: Build graph
+    # Step 2: Build graph (without co-view)
     print("\n[Step 2] Building product graph...")
     co_purchases = loader.extract_co_purchase_relationships()
-    co_views = loader.extract_co_view_relationships()
     co_reviews = loader.extract_co_review_relationships()
     
     builder = ProductGraphBuilder()
     graph = builder.build_graph(
         co_purchases=co_purchases,
-        co_views=co_views,
         co_reviews=co_reviews,
         weight_co_purchase=1.0,
-        weight_co_view=0.5,
         weight_co_review=0.8
     )
     
@@ -192,17 +217,32 @@ def main():
     print("\n[Step 4] Creating visualizations...")
     visualizer = GraphVisualizer(graph, pagerank_scores)
     
+    selected_product = top_products[0][0] if top_products else None
+    
     # Create network plot
-    fig = visualizer.create_network_plot(selected_node=top_products[0][0] if top_products else None)
+    fig = visualizer.create_network_plot(selected_node=selected_product)
     output_file = "visualization_network.html"
     fig.write_html(output_file)
     print(f"Network visualization saved to: {output_file}")
     
-    # Create top products plot
-    fig2 = visualizer.plot_top_products(k=20)
+    # Create top products plot with highlighting
+    fig2 = visualizer.plot_top_products(k=20, highlight_product=selected_product)
     output_file2 = "visualization_top_products.html"
     fig2.write_html(output_file2)
     print(f"Top products visualization saved to: {output_file2}")
+    
+    # Create comparison chart
+    if selected_product:
+        fig3 = visualizer.plot_comparison_chart(selected_product, top_k=10)
+        output_file3 = "visualization_comparison.html"
+        fig3.write_html(output_file3)
+        print(f"Comparison chart saved to: {output_file3}")
+    
+    # Create edge type distribution
+    fig4 = visualizer.plot_edge_type_distribution()
+    output_file4 = "visualization_edge_types.html"
+    fig4.write_html(output_file4)
+    print(f"Edge type distribution saved to: {output_file4}")
     
     # Step 5: Adaptive updates
     print("\n[Step 5] Setting up adaptive update system...")

@@ -29,19 +29,21 @@ def test_adaptive_update():
     
     # Load data
     loader = AmazonDataLoader()
-    reviews = loader.load_reviews(str(REVIEW_FILE), max_reviews=MAX_REVIEWS)
+    reviews = loader.load_reviews(str(REVIEW_FILE), max_reviews=MAX_REVIEWS, sample_ratio=0.05)
     metadata = loader.load_metadata(str(META_FILE))
     
     # Build graph
     co_purchases = loader.extract_co_purchase_relationships()
     co_views = loader.extract_co_view_relationships()
-    
+    co_reviews = loader.extract_co_review_relationships()
     builder = ProductGraphBuilder()
     graph = builder.build_graph(
         co_purchases=co_purchases,
         co_views=co_views,
+        co_reviews=co_reviews,
         weight_co_purchase=1.0,
-        weight_co_view=0.5
+        weight_co_view=0.5,
+        weight_co_review=0.8
     )
     
     # Compute initial PageRank
