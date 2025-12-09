@@ -1,45 +1,22 @@
-"""
-Data Loader Module
-Handles loading and preprocessing of Amazon Review dataset
-"""
-
 import json
 import gzip
 from typing import Dict, List, Tuple, Set
 from collections import defaultdict
 import pandas as pd
+import random
 
 
 class AmazonDataLoader:
-    """Load and preprocess Amazon review data"""
-    
     def __init__(self, review_file: str = None, meta_file: str = None):
-        """
-        Initialize data loader
-        
-        Args:
-            review_file: Path to review JSONL.gz file
-            meta_file: Path to metadata JSONL.gz file
-        """
         self.review_file = review_file
         self.meta_file = meta_file
         self.reviews = []
         self.metadata = {}
         
-    def load_reviews(self, file_path: str, max_reviews: int = None) -> List[Dict]:
-        """
-        Load reviews from JSONL.gz file
-        
-        Args:
-            file_path: Path to review file
-            max_reviews: Maximum number of reviews to load (None for all)
-            
-        Returns:
-            List of review dictionaries
-        """
+    def load_reviews(self, file_path: str, max_reviews: int = None, sample_ratio: float = 0.4) -> List[Dict]:
         reviews = []
         print(f"Loading reviews from {file_path}...")
-        
+
         with gzip.open(file_path, 'rt', encoding='utf-8') as f:
             for i, line in enumerate(f):
                 if max_reviews and i >= max_reviews:
@@ -49,24 +26,23 @@ class AmazonDataLoader:
                     reviews.append(review)
                 except json.JSONDecodeError:
                     continue
-                    
+
                 if (i + 1) % 10000 == 0:
                     print(f"Loaded {i + 1} reviews...")
-        
+
+        print(f"Total reviews loaded before sampling: {len(reviews)}")
+
+        # ---- NEW: Keep only 40% of reviews ---- #
+        k = int(len(reviews) * sample_ratio)
+        reviews = random.sample(reviews, k)
+
+        print(f"Total reviews retained after {sample_ratio*100:.0f}% sampling: {len(reviews)}")
+
         self.reviews = reviews
-        print(f"Total reviews loaded: {len(reviews)}")
         return reviews
+
     
     def load_metadata(self, file_path: str) -> Dict:
-        """
-        Load product metadata from JSONL.gz file
-        
-        Args:
-            file_path: Path to metadata file
-            
-        Returns:
-            Dictionary mapping parent_asin to metadata
-        """
         metadata = {}
         print(f"Loading metadata from {file_path}...")
         
@@ -88,13 +64,6 @@ class AmazonDataLoader:
         return metadata
     
     def extract_co_purchase_relationships(self) -> List[Tuple[str, str]]:
-        """
-        Extract co-purchase relationships from reviews
-        Products are co-purchased if reviewed by the same user
-        
-        Returns:
-            List of (product1, product2) tuples
-        """
         user_products = defaultdict(set)
         
         print("Extracting co-purchase relationships...")
@@ -118,13 +87,6 @@ class AmazonDataLoader:
         return co_purchases
     
     def extract_co_view_relationships(self) -> List[Tuple[str, str]]:
-        """
-        Extract co-view relationships from metadata
-        Uses 'bought_together' field from metadata
-        
-        Returns:
-            List of (product1, product2) tuples
-        """
         co_views = []
         
         print("Extracting co-view relationships...")
@@ -138,8 +100,69 @@ class AmazonDataLoader:
         print(f"Found {len(co_views)} co-view relationships")
         return co_views
     
+    def extract_co_review_relationships(self, time_window_days: int = 30) -> List[Tuple[str, str]]:
+        """
+        Build co-review edges based on timestamp proximity.
+        Handles:
+            - missing timestamps
+            - invalid timestamps
+            - millisecond timestamps
+        """
+        from datetime import datetime
+
+        user_reviews = defaultdict(list)
+
+        for r in self.reviews:
+            user_id = r.get("user_id")
+            asin = r.get("parent_asin")
+            ts = r.get("timestamp")
+
+            if not (user_id and asin and ts):
+                continue
+
+            # ---------- FIX: HANDLE INVALID TIMESTAMP VALUES ----------
+
+            # 1. convert milliseconds to seconds if needed
+            if ts > 10**12:      # definitely milliseconds
+                ts = ts / 1000
+            elif ts > 10**10:   # likely milliseconds
+                ts = ts / 1000
+
+            # 2. ignore negative or zero timestamps
+            if ts <= 0:
+                continue
+
+            # 3. try converting to datetime
+            try:
+                dt = datetime.fromtimestamp(ts)
+            except (OSError, OverflowError, ValueError):
+                continue
+
+            user_reviews[user_id].append((asin, dt))
+
+        # ---------- CREATE EDGES ----------
+        co_reviews = []
+
+        for user, items in user_reviews.items():
+            items.sort(key=lambda x: x[1])
+
+            for i in range(len(items)):
+                for j in range(i + 1, len(items)):
+
+                    asin1, t1 = items[i]
+                    asin2, t2 = items[j]
+
+                    day_diff = abs((t2 - t1).days)
+
+                    if day_diff <= time_window_days:
+                        co_reviews.append((asin1, asin2))
+
+        print(f"Found {len(co_reviews)} co-review relationships")
+        return co_reviews
+
+
+    
     def get_product_info(self, parent_asin: str) -> Dict:
-        """Get metadata for a specific product"""
         return self.metadata.get(parent_asin, {})
 
 

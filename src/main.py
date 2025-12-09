@@ -1,10 +1,7 @@
-"""
-Main Execution Script
-Orchestrates the graph-based recommendation system
-"""
-
 import os
 import sys
+import networkx as nx
+import random
 from pathlib import Path
 from data_loader import AmazonDataLoader
 from graph_builder import ProductGraphBuilder
@@ -13,32 +10,21 @@ from adaptive_update import AdaptivePageRank
 from visualization import GraphVisualizer
 
 
-def main():
-    """Main execution function"""
-    
+def main():    
     print("=" * 60)
     print("Graph-Based Recommendation System using PageRank")
     print("=" * 60)
-    
-    # ========== CONFIGURATION ==========
-    # EASIEST CATEGORY TO START: "All_Beauty" (smallest dataset)
-    # Other options: "Baby_Products", "Appliances", "Amazon_Fashion", etc.
-    # See CATEGORY_GUIDE.md for full list and recommendations
     CATEGORY = "All_Beauty"  # Change this to your chosen category
     
-    # Limit number of reviews for faster processing (None for all)
     MAX_REVIEWS = 50000  # Start with 50K, increase as needed
-    
-    # ===================================
-    
-    # Get the project root directory (parent of src/)
+
     PROJECT_ROOT = Path(__file__).parent.parent
     DATA_DIR = PROJECT_ROOT / "data"
     # Auto-generate file paths based on category
     if CATEGORY:
         REVIEW_FILE = DATA_DIR / f"review_{CATEGORY}.jsonl.gz"
         META_FILE = DATA_DIR / f"meta_{CATEGORY}.jsonl.gz"
-        print(f"\n📦 Selected Category: {CATEGORY}")
+        print(f"\n Selected Category: {CATEGORY}")
         print(f"   Review file: {REVIEW_FILE.name}")
         print(f"   Metadata file: {META_FILE.name}")
     else:
@@ -54,7 +40,6 @@ def main():
         print("Download from: https://amazon-reviews-2023.github.io/")
         return
     
-    # Step 1: Load data
     print("\n[Step 1] Loading data...")
     loader = AmazonDataLoader()
     
@@ -75,7 +60,7 @@ def main():
         demo_mode = False
         # Load actual data (limit for faster processing)
         print(f"Loading reviews from {REVIEW_FILE}...")
-        reviews = loader.load_reviews(str(REVIEW_FILE), max_reviews=MAX_REVIEWS)
+        reviews = loader.load_reviews(str(REVIEW_FILE), max_reviews=MAX_REVIEWS, sample_ratio=0.05)
         
         if META_FILE.exists():
             print(f"Loading metadata from {META_FILE}...")
@@ -88,10 +73,6 @@ def main():
         print("\n" + "=" * 60)
         print("DEMO MODE: Creating sample graph for demonstration")
         print("=" * 60)
-        
-        # Create sample graph for demonstration
-        import networkx as nx
-        import random
         
         # Create a sample graph
         sample_graph = nx.DiGraph()
@@ -178,13 +159,16 @@ def main():
     print("\n[Step 2] Building product graph...")
     co_purchases = loader.extract_co_purchase_relationships()
     co_views = loader.extract_co_view_relationships()
+    co_reviews = loader.extract_co_review_relationships()
     
     builder = ProductGraphBuilder()
     graph = builder.build_graph(
         co_purchases=co_purchases,
         co_views=co_views,
+        co_reviews=co_reviews,
         weight_co_purchase=1.0,
-        weight_co_view=0.5
+        weight_co_view=0.5,
+        weight_co_review=0.8
     )
     
     stats = builder.get_graph_stats()
@@ -233,4 +217,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

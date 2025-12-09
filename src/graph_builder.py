@@ -1,37 +1,19 @@
-"""
-Graph Builder Module
-Constructs product-product graph from relationships
-"""
-
 import networkx as nx
 from typing import List, Tuple, Dict, Set
 from collections import Counter
 
 
-class ProductGraphBuilder:
-    """Build product-product graph from relationships"""
-    
+class ProductGraphBuilder:    
     def __init__(self):
-        """Initialize graph builder"""
         self.graph = nx.DiGraph()
         
     def build_graph(self, 
                    co_purchases: List[Tuple[str, str]] = None,
                    co_views: List[Tuple[str, str]] = None,
+                   co_reviews: List[Tuple[str, str]] = None,
                    weight_co_purchase: float = 1.0,
-                   weight_co_view: float = 0.5) -> nx.DiGraph:
-        """
-        Build directed graph from relationships
-        
-        Args:
-            co_purchases: List of co-purchase pairs
-            co_views: List of co-view pairs
-            weight_co_purchase: Weight for co-purchase edges
-            weight_co_view: Weight for co-view edges
-            
-        Returns:
-            NetworkX directed graph
-        """
+                   weight_co_view: float = 0.5,
+                   weight_co_review: float = 0.8) -> nx.DiGraph:
         self.graph = nx.DiGraph()
         
         # Add co-purchase edges
@@ -62,20 +44,27 @@ class ProductGraphBuilder:
                     self.graph.add_edge(u, v, weight=weight, type='co_view')
         
         print(f"Graph built: {self.graph.number_of_nodes()} nodes, "
-              f"{self.graph.number_of_edges()} edges")
+            f"{self.graph.number_of_edges()} edges")
         
+
+        if co_reviews:
+            print(f"Adding {len(co_reviews)} co-review edges...")
+            edge_weights = Counter()
+            for u, v in co_reviews:
+                edge_weights[(u, v)] += weight_co_review
+                edge_weights[(v, u)] += weight_co_review
+            
+            for (u, v), weight in edge_weights.items():
+                if self.graph.has_edge(u, v):
+                    self.graph[u][v]['weight'] += weight
+                    # preserve existing type, but could store multiple types
+                else:
+                    self.graph.add_edge(u, v, weight=weight, type='co_review')
+
         return self.graph
     
     def add_product(self, product_id: str, relationships: List[Tuple[str, str]], 
                     weights: List[float] = None):
-        """
-        Add a new product and its relationships to the graph
-        
-        Args:
-            product_id: ID of the product to add
-            relationships: List of (related_product, direction) tuples
-            weights: Optional list of edge weights
-        """
         if weights is None:
             weights = [1.0] * len(relationships)
         
@@ -89,12 +78,10 @@ class ProductGraphBuilder:
                 self.graph.add_edge(related_product, product_id, weight=weight)
     
     def remove_product(self, product_id: str):
-        """Remove a product and all its edges from the graph"""
         if product_id in self.graph:
             self.graph.remove_node(product_id)
     
     def get_graph_stats(self) -> Dict:
-        """Get statistics about the graph"""
         if self.graph.number_of_nodes() == 0:
             return {}
         
@@ -108,7 +95,6 @@ class ProductGraphBuilder:
         }
     
     def get_neighbors(self, product_id: str) -> Set[str]:
-        """Get all neighbor products of a given product"""
         if product_id not in self.graph:
             return set()
         return set(self.graph.neighbors(product_id))
